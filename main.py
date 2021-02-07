@@ -18,6 +18,14 @@ banner = """
 """[1:-1]
 
 print('\x1b[1m'+ banner +'\x1b[0m')
+
+if '-h' in argv or '--help' in argv:
+    print('Usage: python3 main.py [flags...]')
+    print('-h,  --help\t Shows this help screen.')
+    print('-a,  --add\t Adds a new TOTP secret.', end='\n'*2)
+    print('If used without any flag, would default to display OTP mode.')
+    exit()
+
 print(info(f'Initialized [at] -> {fetchFormatedTime()}'))
 
 
@@ -108,17 +116,23 @@ def write_secret(app_name, secret):
         return True
     return False
 
+
 if '-a' in argv or '--add' in argv:
     app_name = coolInput('App name')
     secret = get_secret('App secret')
     if not write_secret(app_name, secret):
         print(bad(f'Failed to write secret of -> {app_name}'))
         coolExit(1)
+    print(good(f'{app_name} -> was added to TOTP secret storage.'))
     coolExit()
 
 for _ in listdir():
     if  _.endswith('_secret.txt'):
         secret_files.append(_)
+
+if not secret_files:
+    print(bad('No secret files -> You should first add a TOTP secret using `-a` flag.'))
+    coolExit(1)
 
 for _ in range(len(secret_files)):
     print(info(f'{_} -> {secret_files[_][:-11]}'))
@@ -135,14 +149,14 @@ if choice > _:
 elif choice < 0:
     for secret_filename in secret_files:
         print(info(f'App -> {secret_filename[:-11]}'))
-        clipboard.copy(str(otp.now()))
         otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
         print(good(f'OTP -> {otp.now()}'))
 else:
     secret_filename = secret_files[choice]
     print(info(f'App -> {secret_filename[:-11]}'))
     otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
-    print(good(f'OTP -> {otp.now()}'))
+    clipboard.copy(str(otp.now()))
+    print(good(f'OTP (Copied to clipboard.) -> {otp.now()}'))
 
 chdir('..')
 
