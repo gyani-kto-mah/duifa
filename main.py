@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from pyotp import TOTP
-from os import path, chdir, listdir
+from os import path, chdir, listdir, remove
 from stoyled import *
 import platform #  import system
 from sys import argv
@@ -17,12 +17,14 @@ banner = """
 
 """[1:-1]
 
+REMOVE = False
 print('\x1b[1m'+ banner +'\x1b[0m')
 
 if '-h' in argv or '--help' in argv:
     print('Usage: python3 main.py [flags...]')
     print('-h,  --help\t Shows this help screen.')
-    print('-a,  --add\t Adds a new TOTP secret.', end='\n'*2)
+    print('-a,  --add\t Adds a new TOTP secret.')
+    print('-r,  --remove\t Remove a TOTP secret.', end='\n'*2)
     print('If used without any flag, would default to display OTP mode.')
     exit()
 
@@ -117,7 +119,7 @@ def write_secret(app_name, secret):
     return False
 
 
-if '-a' in argv or '--add' in argv:
+if any(_ in argv for _ in ('-a', '-ad', '-add', '--add')):
     app_name = coolInput('App name')
     secret = get_secret('App secret')
     if not write_secret(app_name, secret):
@@ -126,6 +128,10 @@ if '-a' in argv or '--add' in argv:
     print(good(f'{app_name} -> was added to TOTP secret storage.'))
     coolExit()
 
+if any(_ in argv for _ in ('-r', '-rm', '--rm',
+                            '-remove', '--remove')):
+    REMOVE = True
+
 for _ in listdir():
     if  _.endswith('_secret.txt'):
         secret_files.append(_)
@@ -133,6 +139,9 @@ for _ in listdir():
 if not secret_files:
     print(bad('No secret files -> You should first add a TOTP secret using `-a` flag.'))
     coolExit(1)
+
+if REMOVE:
+    print(bad('Select the App. no you want to remove.'))
 
 for _ in range(len(secret_files)):
     print(info(f'{_} -> {secret_files[_][:-11]}'))
@@ -147,16 +156,45 @@ if choice > _:
     print(bad("Error -> Given App no doesn't exist."))
     coolExit(1)
 elif choice < 0:
-    for secret_filename in secret_files:
-        print(info(f'App -> {secret_filename[:-11]}'))
-        otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
-        print(good(f'OTP -> {otp.now()}'))
+    if REMOVE:
+        print(bad(f'Are you sure, you want to remove all TOTP secrets?'))
+        prompt = coolInput('yes/[N]o')
+        if prompt.lower() in ('y', 'yes'):
+            # Recursive removal
+            try:
+                for secret_filename in secret_files:
+                    remove(secret_filename)
+                    print(good(f'{secret_filename[:-11]}\'s TOTP secret -> Removed sucessfully.'))
+            except Exception as e:
+                print(bad(f'Exception -> {e}'))
+                coolExit(1)
+        else:
+            coolExit()
+    else:
+        for secret_filename in secret_files:
+            print(info(f'App -> {secret_filename[:-11]}'))
+            otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
+            print(good(f'OTP -> {otp.now()}'))
 else:
     secret_filename = secret_files[choice]
-    print(info(f'App -> {secret_filename[:-11]}'))
-    otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
-    clipboard.copy(str(otp.now()))
-    print(good(f'OTP (Copied to clipboard.) -> {otp.now()}'))
+    app_name = secret_filename[:-11]
+    if REMOVE:
+        print(bad(f'Are you sure? You want to remove {app_name}\'s TOTP secret.'))
+        prompt = coolInput('yes/[N]o')
+        if prompt.lower() in ('y', 'yes'):
+            try:
+                remove(secret_filename)
+                print(good(f'{app_name}\'s TOTP secret -> Removed sucessfully.'))
+            except Exception as exp:
+                print(bad(f'Exception -> {exp}'))
+                coolExit(1)
+        else:
+            coolExit()
+    else:
+        print(info(f'App -> {app_name}'))
+        otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
+        clipboard.copy(str(otp.now()))
+        print(good(f'OTP (Copied to clipboard.) -> {otp.now()}'))
 
 chdir('..')
 
