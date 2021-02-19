@@ -3,9 +3,11 @@
 from pyotp import TOTP
 from os import path, chdir, listdir, remove
 from stoyled import *
-import platform #  import system
+from platform import system as platform
 from sys import argv
-import clipboard #  import copy
+from clipboard import copy
+from uuid import getnode
+from speck import SpeckCipher
 
 banner = """
  ______       _______ ___  
@@ -31,7 +33,7 @@ if '-h' in argv or '--help' in argv:
 print(info(f'Initialized [at] -> {fetchFormatedTime()}'))
 
 
-if platform.system() == "Windows":
+if platform() == "Windows":
     import msvcrt
     def getch():
         return msvcrt.getch()
@@ -48,6 +50,50 @@ else:
         finally:
             tcsetattr(f, TCSADRAIN, o)
         return char
+
+class Cipher:
+    def __init__(self, key):
+        self.key = key
+
+    def chunks(self, l, n):
+        n = max(1, n)
+        return (l[i:i+n] for i in range(0, len(l), n))
+
+    def encode(self, string: str) -> int:
+        num = 0
+        for ch in str(string):
+            num = num * 100
+            num += (ord(ch) - 23)
+        return num
+
+
+    def decode(self, num: int) -> str:
+        res = ""
+        num = int(num)
+        while num > 0:
+            lastDigit = num % 100
+            res += chr(lastDigit+23)
+            num = num // 100
+        return res[::-1]
+
+
+    def encrypt(self, plaintext):
+        out = []
+        number_str = str(self.encode(str(plaintext)))
+        chunked_number_str = self.chunks(number_str, 19)
+        for nstr in chunked_number_str:
+            encrypted_str = SpeckCipher(self.key).encrypt(int(nstr))
+            out.append(encrypted_str)
+
+        return ".".join([str(x) for x in out])
+
+
+    def decrypt(self, ciphertext):
+        out = ""
+        for n in ciphertext.split("."):
+            out += str(SpeckCipher(self.key).decrypt(int(n)))
+        return self.decode(int(out))
+
 
 chdir('.secrets')
 secret_files = []
@@ -113,10 +159,19 @@ def get_secret(prompt='Enter secret', redact='*'):
 
 def write_secret(app_name, secret):
     filename = f'{app_name}_secret.txt'
+    cipher = Cipher(getnode())
+    secret = cipher.encrypt(secret.strip().replace(' ', ''))
     if not path.isfile(filename):
         open(filename, 'w').write(secret)
         return True
     return False
+
+
+def read_secret(secret_filename):
+    secret_file = open(secret_filename).read().strip().replace(' ', '')
+    cipher = Cipher(getnode())
+    secret = cipher.decrypt(secret_file).strip().replace(' ', '')
+    return secret
 
 
 if any(_ in argv for _ in ('-a', '-ad', '-add', '--add')):
@@ -173,7 +228,7 @@ elif choice < 0:
     else:
         for secret_filename in secret_files:
             print(info(f'App -> {secret_filename[:-11]}'))
-            otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
+            otp = TOTP(read_secret(secret_filename))
             print(good(f'OTP -> {otp.now()}'))
 else:
     secret_filename = secret_files[choice]
@@ -192,9 +247,9 @@ else:
             coolExit()
     else:
         print(info(f'App -> {app_name}'))
-        otp = TOTP(open(secret_filename).read().strip().replace(' ', ''))
-        clipboard.copy(str(otp.now()))
+        otp = TOTP(read_secret(secret_filename))
         print(good(f'OTP (Copied to clipboard.) -> {otp.now()}'))
+        copy(str(otp.now()))
 
 chdir('..')
 
