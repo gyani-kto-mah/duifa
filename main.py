@@ -15,7 +15,6 @@ banner = """
 """[1:-1]
 
 
-REMOVE = False
 print('\x1b[1m'+ banner +'\x1b[0m')
 
 
