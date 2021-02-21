@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 
-from pyotp import TOTP
-from os import path, chdir, listdir, remove
-from stoyled import *
-from platform import system as platform
-from sys import argv
-from clipboard import copy
-from uuid import getnode
-from speck import SpeckCipher
+from core import *
+from fire import Fire
+
 
 banner = """
  ______       _______ ___  
@@ -19,238 +14,145 @@ banner = """
 
 """[1:-1]
 
+
 REMOVE = False
 print('\x1b[1m'+ banner +'\x1b[0m')
 
-if '-h' in argv or '--help' in argv:
-    print('Usage: python3 main.py [flags...]')
-    print('-h,  --help\t Shows this help screen.')
-    print('-a,  --add\t Adds a new TOTP secret.')
-    print('-r,  --remove\t Remove a TOTP secret.', end='\n'*2)
-    print('If used without any flag, would default to display OTP mode.')
-    exit()
 
-print(info(f'Initialized [at] -> {fetchFormatedTime()}'))
+class Duifa:
 
+    def __init__(self, add: bool = False, remove: bool = False, a: bool = False, r: bool = False, rm: bool = False):
+        
+        print(info(f'Initialized [at] -> {fetchFormatedTime()}'))
+        
+        self.secret_files = self.list_secret_files()
+        
+        if any((add, a)):
+            self.add()
 
-if platform() == "Windows":
-    import msvcrt
-    def getch():
-        return msvcrt.getch()
-else:
-    from sys import stdin
-    from termios import tcgetattr, tcsetattr, TCSADRAIN
-    from tty import setraw
-    def getch():
-        f = stdin.fileno()
-        o = tcgetattr(f)
-        try:
-            setraw(stdin.fileno())
-            char = stdin.read(1)
-        finally:
-            tcsetattr(f, TCSADRAIN, o)
-        return char
+        elif any((remove, rm, r)):
+            self.remove()
 
-class Cipher:
-    def __init__(self, key):
-        self.key = key
-
-    def chunks(self, l, n):
-        n = max(1, n)
-        return (l[i:i+n] for i in range(0, len(l), n))
-
-    def encode(self, string: str) -> int:
-        num = 0
-        for ch in str(string):
-            num = num * 100
-            num += (ord(ch) - 23)
-        return num
-
-
-    def decode(self, num: int) -> str:
-        res = ""
-        num = int(num)
-        while num > 0:
-            lastDigit = num % 100
-            res += chr(lastDigit+23)
-            num = num // 100
-        return res[::-1]
-
-
-    def encrypt(self, plaintext):
-        out = []
-        number_str = str(self.encode(str(plaintext)))
-        chunked_number_str = self.chunks(number_str, 19)
-        for nstr in chunked_number_str:
-            encrypted_str = SpeckCipher(self.key).encrypt(int(nstr))
-            out.append(encrypted_str)
-
-        return ".".join([str(x) for x in out])
-
-
-    def decrypt(self, ciphertext):
-        out = ""
-        for n in ciphertext.split("."):
-            out += str(SpeckCipher(self.key).decrypt(int(n)))
-        return self.decode(int(out))
-
-
-chdir('.secrets')
-secret_files = []
-
-def get_secret(prompt='Enter secret', redact='*'):
-    redact = str(redact)[0]
-    if not redact:
-        redact = '*'
-    print(takenInput(f'{purple_l}{prompt}: '), end='', flush=True)
-    chars = ''
-    oops = 0
-    while 1:
-        # TESTED ONLY ON POSIX
-        char = getch()
-        chars += char
-        print(redact, end='', flush=True)
-        if char == '\x7f':
-            if len(chars) > 1:
-                chars = chars[:-2]
-                print('\b\b  \b\b', end='', flush=True)
-            else:
-                chars = chars[:-1]
-                print('\b \b', end='', flush=True)
-        elif char == '\x17':
-            lc = len(chars)
-            chars = ''
-            print('\b'*lc + ' '*lc + '\b'*lc, end='', flush=True)
-        elif char in (
-                        '\x01', '\x02', '\x05',
-                        '\x06', '\x07', '\x08',
-                        '\x10', '\x11', '\x12',
-                        '\x13', '\x14', '\x15',
-                        '\x19', '\x0b', '\x0c',
-                        '\x0f', '\x1a', '\x18',
-                        '\x16', '\x0e'
-                    ):
-            chars = chars[:-1]
-            print('\b \b', end='', flush=True)
-        elif char == '\x03':
-            chars = chars[:-1]
-            print('\b \b')
-            raise KeyboardInterrupt()
-        elif char == '\x04':
-            chars = chars[:-1]
-            print('\b \b')
-            raise EOFError()
-        elif char == '\r':
-            chars = chars[:-1]
-            print('\b \b')
-            break
-        elif char == '\x1b':
-            oops += 1
-        elif char == '[':
-            if oops:
-                oops += 1
-        elif char in ('A', 'B', 'C', 'D'):
-            if oops == 2:
-                chars = chars[:-3]
-                print('\b\b\b   \b\b\b', end='', flush=True)
-                oops = 0
-    return chars
-
-
-def write_secret(app_name, secret):
-    filename = f'{app_name}_secret.txt'
-    cipher = Cipher(getnode())
-    secret = cipher.encrypt(secret.strip().replace(' ', ''))
-    if not path.isfile(filename):
-        open(filename, 'w').write(secret)
-        return True
-    return False
-
-
-def read_secret(secret_filename):
-    secret_file = open(secret_filename).read().strip().replace(' ', '')
-    cipher = Cipher(getnode())
-    secret = cipher.decrypt(secret_file).strip().replace(' ', '')
-    return secret
-
-
-if any(_ in argv for _ in ('-a', '-ad', '-add', '--add')):
-    app_name = coolInput('App name')
-    secret = get_secret('App secret')
-    if not write_secret(app_name, secret):
-        print(bad(f'Failed to write secret of -> {app_name}'))
-        coolExit(1)
-    print(good(f'{app_name} -> was added to TOTP secret storage.'))
-    coolExit()
-
-if any(_ in argv for _ in ('-r', '-rm', '--rm',
-                            '-remove', '--remove')):
-    REMOVE = True
-
-for _ in listdir():
-    if  _.endswith('_secret.txt'):
-        secret_files.append(_)
-
-if not secret_files:
-    print(bad('No secret files -> You should first add a TOTP secret using `-a` flag.'))
-    coolExit(1)
-
-if REMOVE:
-    print(bad('Select the App. no you want to remove.'))
-
-for _ in range(len(secret_files)):
-    print(info(f'{_} -> {secret_files[_][:-11]}'))
-
-try:
-    choice = int(coolInput('App no'))
-except Exception as exception:
-    print(bad(f'Exception -> {exception}'))
-    coolExit(1)
-
-if choice > _:
-    print(bad("Error -> Given App no doesn't exist."))
-    coolExit(1)
-elif choice < 0:
-    if REMOVE:
-        print(bad(f'Are you sure, you want to remove all TOTP secrets?'))
-        prompt = coolInput('yes/[N]o')
-        if prompt.lower() in ('y', 'yes'):
-            # Recursive removal
-            try:
-                for secret_filename in secret_files:
-                    remove(secret_filename)
-                    print(good(f'{secret_filename[:-11]}\'s TOTP secret -> Removed sucessfully.'))
-            except Exception as e:
-                print(bad(f'Exception -> {e}'))
-                coolExit(1)
         else:
-            coolExit()
-    else:
-        for secret_filename in secret_files:
-            print(info(f'App -> {secret_filename[:-11]}'))
+            print(good('Select an App. no -> whoose you wish to see OTP of.'))
+            self.display()
+
+        coolExit()
+
+
+    def list_secret_files(self):
+        secret_files = []
+        
+        for _ in listdir():
+            if  _.endswith('_secret.txt'):
+                secret_files.append(_)
+
+        if not secret_files:
+            print(bad('No secret files -> You should first add a TOTP secret using `-a` flag.'))
+            coolExit(1)
+
+        self.secret_files = secret_files
+        
+        return secret_files
+
+
+    def display(self, choice=None):
+
+        if type(choice) != int:
+            choice = self.choice()
+        
+        if type(choice) is bool and choice:
+            for secret_filename in self.secret_files:
+                otp = TOTP(read_secret(secret_filename))
+                print(good(f'{secret_filename[:-11]} -> {otp.now()}'))
+        
+        else:
+            secret_filename = self.secret_files[choice]
+            app_name = secret_filename[:-11]
             otp = TOTP(read_secret(secret_filename))
-            print(good(f'OTP -> {otp.now()}'))
-else:
-    secret_filename = secret_files[choice]
-    app_name = secret_filename[:-11]
-    if REMOVE:
-        print(bad(f'Are you sure? You want to remove {app_name}\'s TOTP secret.'))
-        prompt = coolInput('yes/[N]o')
-        if prompt.lower() in ('y', 'yes'):
-            try:
-                remove(secret_filename)
-                print(good(f'{app_name}\'s TOTP secret -> Removed sucessfully.'))
-            except Exception as exp:
-                print(bad(f'Exception -> {exp}'))
-                coolExit(1)
+            print(good(f'{app_name}\'s OTP (Copied to clipboard.) -> {otp.now()}'))
+            copy(str(otp.now()))
+
+
+    def add(self):
+        
+        app_name = coolInput('App name')
+        secret = get_secret('App secret')
+        filename = f'{app_name}_secret.txt'
+        cipher = Cipher()
+        c_secret = cipher.encrypt(secret.strip().replace(' ', ''))
+        
+        if not path.isfile(filename):
+            open(filename, 'w').write(c_secret)
+            sleep(0.4)
+            self.display(self.list_secret_files().index(filename))
+            print(good(f'{app_name} -> has been added to your TOTP secret storage.'))
+        
         else:
-            coolExit()
-    else:
-        print(info(f'App -> {app_name}'))
-        otp = TOTP(read_secret(secret_filename))
-        print(good(f'OTP (Copied to clipboard.) -> {otp.now()}'))
-        copy(str(otp.now()))
+            print(bad(f'{app_name} -> a TOTP secret already exists.'))
+            coolExit(1)
 
-chdir('..')
 
-coolExit()
+    def choice(self):
+
+        for _ in range(len(self.secret_files)):
+            print(info(f'{_} -> {self.secret_files[_][:-11]}'))
+
+        try:
+            choice = int(coolInput('App no'))
+
+        except Exception as exception:
+            print(bad(f'Exception -> {exception}'))
+            coolExit(1)
+
+        if choice > _:
+            print(bad("Error -> Given App no doesn't exist."))
+            coolExit(1)
+
+        elif choice < 0:
+            return True
+
+        return choice
+
+
+    def remove(self):
+        
+        print(bad('Specify an App. no -> that you want to get rid of.'))
+        
+        choice = self.choice()
+        
+        if type(choice) is bool and choice:
+            print(bad(f'Are you sure? -> you want to remove all TOTP secrets?'))
+            prompt = coolInput('yes/[N]o')
+            sleep(3.14285)
+            if prompt.lower() in ('y', 'yes'):
+                try:
+                    for secret_filename in self.secret_files:
+                        remove(secret_filename)
+                        print(good(f'{secret_filename[:-11]}\'s TOTP secret -> \x1b[1mRemoved sucessfully.'))
+                        sleep(0.7142857143)
+                except Exception as e:
+                    print(bad(f'Exception -> {e}'))
+                    coolExit(1)
+            else:
+                coolExit()
+
+        else:
+            secret_filename = self.secret_files[choice]
+            app_name = secret_filename[:-11]
+            print(bad(f'Are you sure? -> You want to remove {app_name}\'s TOTP secret.'))
+            prompt = coolInput('yes/[N]o')
+            if prompt.lower() in ('y', 'yes'):
+                try:
+                    remove(secret_filename)
+                    print(good(f'{app_name}\'s TOTP secret -> Removed sucessfully.'))
+                except Exception as exp:
+                    print(bad(f'Exception -> {exp}'))
+                    coolExit(1)
+            else:
+                coolExit()
+
+
+if __name__ == '__main__':
+    chdir('.secrets')
+    Fire(Duifa)
